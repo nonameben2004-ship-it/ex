@@ -1,0 +1,118 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+  TEACHER
+}
+
+enum ExamType {
+  OGE
+  EGE
+}
+
+// 1. ПОЛЬЗОВАТЕЛЬ
+// Хранит основные данные юзера. Связан с его токенами и историей решений.
+model User {
+  id           String         @id @default(uuid())
+  email        String         @unique
+  passwordHash String
+  role         Role           @default(USER)
+  points       Int            @default(0)       // Игровая валюта / общий рейтинг
+  isVerified   Boolean        @default(false)   // Подтверждена ли почта
+  createdAt    DateTime       @default(now())
+
+  tokens       Token[]        // Связь 1-ко-многим с таблицей Token
+  progress     UserProgress[] // Связь 1-ко-многим с прогрессом
+}
+
+// 2. REFRESH ТОКЕНЫ
+// Нужна для безопасности. Позволяет пользователю не логиниться каждый день заново, 
+// а нам дает возможность безопасно разлогинить его (удалив токен из базы).
+model Token {
+  id           String   @id @default(uuid())
+  refreshToken String   @unique
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+}
+
+// 3. ПРЕДМЕТЫ
+// Например: "Математика (Профиль)", "Информатика". 
+// Нужна, чтобы удобно фильтровать задания и варианты по конкретному предмету.
+model Subject {
+  id        String     @id @default(uuid())
+  name      String
+  examType  ExamType   // OGE или EGE
+
+  tasks     Task[]
+  variants  Variant[]
+}
+
+// 4. ЗАДАНИЯ
+// Главная модель сайта. Хранит сам вопрос, ответ на него, картинку и привязку к предмету.
+model Task {
+  id          String         @id @default(uuid())
+  subjectId   String
+  subject     Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  
+  taskNumber  Int            // Номер задания в КИМе (например, 15)
+  content     String         @db.Text // Текст или HTML-код задания
+  imageUrl    String?        // Ссылка на картинку (если нужна)
+  answer      String         // Правильный ответ
+  maxPoints   Int            @default(1) // Первичный балл за задание
+
+  variants    VariantTask[]
+  progress    UserProgress[]
+}
+
+// 5. ВАРИАНТЫ
+// Сборник заданий (например, "Статград 15.10.2023").
+// Нужна, чтобы можно было дать ссылку на целый тест.
+model Variant {
+  id        String         @id @default(uuid())
+  title     String
+  subjectId String
+  subject   Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  tasks     VariantTask[]
+}
+
+// 6. СВЯЗЬ ВАРИАНТОВ И ЗАДАНИЙ (Много-ко-многим)
+// Нужна, так как одно задание №5 может встречаться в Демоверсии, Статграде и авторском варианте.
+model VariantTask {
+  variantId String
+  taskId    String
+  variant   Variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  task      Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([variantId, taskId]) // Составной первичный ключ
+}
+
+// 7. ПРОГРЕСС ПОЛЬЗОВАТЕЛЯ
+// История решений. Хранит информацию о том, кто, когда и как решил конкретную задачу.
+model UserProgress {
+  id           String   @id @default(uuid())
+  userId       String
+  taskId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  userAnswer   String   // Ответ, который ввел ученик
+  isCorrect    Boolean  // Компьютер проверил и отметил (True/False)
+  earnedPoints Int      // Сколько баллов он получил за этот ответ
+  solvedAt     DateTime @default(now()) // Время решения
+}
+
